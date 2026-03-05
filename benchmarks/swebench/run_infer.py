@@ -178,10 +178,21 @@ class SWEBenchEvaluation(Evaluation):
                     "(assumed already wrapped)"
                 )
 
+            # Mount frozen system prompt into container to ensure inference
+            # matches training data, regardless of container SDK version.
+            frozen_prompt_path = os.environ.get(
+                "OPENHANDS_FROZEN_SYSTEM_PROMPT",
+                "/home/jie/trajectory_analyzer/config/eval/openhands/system_prompt.j2",
+            )
+            volumes = []
+            if os.path.exists(frozen_prompt_path):
+                volumes.append(f"{frozen_prompt_path}:/frozen/system_prompt.j2:ro")
+
             workspace = DockerWorkspace(
                 server_image=agent_server_image,
                 working_dir="/workspace",
                 forward_env=forward_env or [],
+                volumes=volumes,
             )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
@@ -249,9 +260,17 @@ class SWEBenchEvaluation(Evaluation):
         )
         if self.metadata.enable_delegation:
             tools.append(Tool(name=DelegateTool.name))
+        # Use frozen system prompt if mounted, otherwise fall back to default.
+        system_prompt_filename = (
+            "/frozen/system_prompt.j2"
+            if os.environ.get("OPENHANDS_FROZEN_SYSTEM_PROMPT")
+            or os.path.exists("/home/jie/trajectory_analyzer/config/eval/openhands/system_prompt.j2")
+            else "system_prompt.j2"
+        )
         agent = Agent(
             llm=self.metadata.llm,
             tools=tools,
+            system_prompt_filename=system_prompt_filename,
             system_prompt_kwargs={"cli_mode": True},
             # TODO: we can enable condenser and security analyzer later
             # and have them configurable via EvalMetadata
